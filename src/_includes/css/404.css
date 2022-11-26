@@ -1,0 +1,11 @@
+.body-404 {
+    margin: 32px auto;
+    width: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.body-404 p a {
+    color: var(--color-pink);
+}
